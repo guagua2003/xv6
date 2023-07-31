@@ -1,0 +1,19 @@
+使用此共享页面可以更快地进行哪些 xv6 系统调用？ 解释原因。
+
+**可以加速fork()，通过在`struct usyscall`中添加一个`parent`，以供`child`需要的时候在用户态直接使用`USYSCALL`页面调用，而不用切换到内核态**
+/* kernel/memlayout.h */
+...
+struct usyscall {
+  int pid;  // Process ID
+  struct proc *parent
+};
+
+用图 3-4 解释 `vmprint` 的输出，来自 发短信。第 0 页包含什么？第 2 页的内容是什么？ 在用户模式下运行时，进程是否可以读取/写入内存 按第 1 页映射？倒数第三页包含什么？
+
+**第0页：进程的日期和文本内容**
+
+**第2页：进程的堆栈**
+
+**程序在用户态运行时是不能读/写page1的，因为它本身就是用来保护page2不被用户访问**
+
+**倒数第3页：堆、trapframe 、trampoline**

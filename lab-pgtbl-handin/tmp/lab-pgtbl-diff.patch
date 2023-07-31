@@ -1,0 +1,223 @@
+diff --git a/answers-pgtbl.txt b/answers-pgtbl.txt
+new file mode 100644
+index 0000000..25a9025
+--- /dev/null
++++ b/answers-pgtbl.txt
+@@ -0,0 +1,19 @@
++使用此共享页面可以更快地进行哪些 xv6 系统调用？ 解释原因。
++
++**可以加速fork()，通过在`struct usyscall`中添加一个`parent`，以供`child`需要的时候在用户态直接使用`USYSCALL`页面调用，而不用切换到内核态**
++/* kernel/memlayout.h */
++...
++struct usyscall {
++  int pid;  // Process ID
++  struct proc *parent
++};
++
++用图 3-4 解释 `vmprint` 的输出，来自 发短信。第 0 页包含什么？第 2 页的内容是什么？ 在用户模式下运行时，进程是否可以读取/写入内存 按第 1 页映射？倒数第三页包含什么？
++
++**第0页：进程的日期和文本内容**
++
++**第2页：进程的堆栈**
++
++**程序在用户态运行时是不能读/写page1的，因为它本身就是用来保护page2不被用户访问**
++
++**倒数第3页：堆、trapframe 、trampoline**
+\ No newline at end of file
+diff --git a/kernel/defs.h b/kernel/defs.h
+index 3564db4..36be735 100644
+--- a/kernel/defs.h
++++ b/kernel/defs.h
+@@ -170,6 +170,8 @@ uint64          walkaddr(pagetable_t, uint64);
+ int             copyout(pagetable_t, uint64, char *, uint64);
+ int             copyin(pagetable_t, char *, uint64, uint64);
+ int             copyinstr(pagetable_t, char *, uint64, uint64);
++void            vmprint(pagetable_t, int);
++uint64		      access_check(pagetable_t, uint64);
+ 
+ // plic.c
+ void            plicinit(void);
+diff --git a/kernel/exec.c b/kernel/exec.c
+index d62d29d..87b2053 100644
+--- a/kernel/exec.c
++++ b/kernel/exec.c
+@@ -116,6 +116,12 @@ exec(char *path, char **argv)
+   p->trapframe->sp = sp; // initial stack pointer
+   proc_freepagetable(oldpagetable, oldsz);
+ 
++  if(1 == p->pid) 
++  {
++    printf("page table %p\n",p->pagetable);
++    vmprint(p->pagetable,1);
++  }
++
+   return argc; // this ends up in a0, the first argument to main(argc, argv)
+ 
+  bad:
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 22e7ce4..53668e2 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -126,6 +126,13 @@ found:
+     release(&p->lock);
+     return 0;
+   }
++  
++  if((p->usyscall = (struct usyscall *)kalloc()) == 0){
++  	freeproc(p);
++  	release(&p->lock);
++  	return 0;
++  } 
++  
+ 
+   // An empty user page table.
+   p->pagetable = proc_pagetable(p);
+@@ -140,6 +147,8 @@ found:
+   memset(&p->context, 0, sizeof(p->context));
+   p->context.ra = (uint64)forkret;
+   p->context.sp = p->kstack + PGSIZE;
++  
++  p->usyscall->pid = p->pid;
+ 
+   return p;
+ }
+@@ -156,6 +165,11 @@ freeproc(struct proc *p)
+   if(p->pagetable)
+     proc_freepagetable(p->pagetable, p->sz);
+   p->pagetable = 0;
++  
++  if(p->usyscall) 
++  	kfree((void*)p->usyscall);
++  p->usyscall = 0;
++  
+   p->sz = 0;
+   p->pid = 0;
+   p->parent = 0;
+@@ -195,6 +209,12 @@ proc_pagetable(struct proc *p)
+     uvmfree(pagetable, 0);
+     return 0;
+   }
++  
++  if(mappages(pagetable, USYSCALL, PGSIZE, 
++              (uint64)(p->usyscall), PTE_R | PTE_U) < 0){
++      uvmfree(pagetable, 0);
++      return 0;
++  }
+ 
+   return pagetable;
+ }
+@@ -206,6 +226,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
+ {
+   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+   uvmunmap(pagetable, TRAPFRAME, 1, 0);
++  uvmunmap(pagetable, USYSCALL, 1, 0);
+   uvmfree(pagetable, sz);
+ }
+ 
+diff --git a/kernel/proc.h b/kernel/proc.h
+index f6ca8b7..fb0a810 100644
+--- a/kernel/proc.h
++++ b/kernel/proc.h
+@@ -105,4 +105,5 @@ struct proc {
+   struct file *ofile[NOFILE];  // Open files
+   struct inode *cwd;           // Current directory
+   char name[16];               // Process name (debugging)
++  struct usyscall* usyscall;
+ };
+diff --git a/kernel/riscv.h b/kernel/riscv.h
+index 1691faf..6f7e0e3 100644
+--- a/kernel/riscv.h
++++ b/kernel/riscv.h
+@@ -343,6 +343,7 @@ sfence_vma()
+ #define PTE_W (1L << 2)
+ #define PTE_X (1L << 3)
+ #define PTE_U (1L << 4) // 1 -> user can access
++#define PTE_A	(1L << 6)
+ 
+ // shift a physical address to the right place for a PTE.
+ #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3bd0007..0b03124 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -80,6 +80,16 @@ sys_sleep(void)
+ int
+ sys_pgaccess(void)
+ {
++  uint64 start_addr;
++  int amount;		
++  uint64 buffer;	
++  if (argaddr(0, &start_addr) < 0 || argint(1, &amount) < 0 || argaddr(2, &buffer) < 0) 
++    return -1;
++    
++  struct proc* p = myproc();
++  uint64 mask = access_check(p->pagetable, start_addr);
++  if (copyout(p->pagetable, buffer, (char*)&mask, sizeof(uint64)) < 0)
++    return -1;
+   // lab pgtbl: your code here.
+   return 0;
+ }
+diff --git a/kernel/vm.c b/kernel/vm.c
+index d5a12a0..a0a361f 100644
+--- a/kernel/vm.c
++++ b/kernel/vm.c
+@@ -432,3 +432,51 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+     return -1;
+   }
+ }
++
++void vmprint(pagetable_t pagetable, int level)
++{
++	static char* level1 = "..";
++	static char* level2 = ".. ..";
++	static char* level3 = ".. .. ..";
++	char* buf = 0;
++	if (1 == level)
++		buf = level1;
++	else if (2 == level)
++		buf =  level2;
++	else if (3 == level)
++		buf = level3;
++	for (int i = 0;i < 512;i++)
++	{
++		pte_t pte = pagetable[i];
++		if ((pte & PTE_V) && level <= 3)
++		{
++			uint64 child = PTE2PA(pte);
++			printf("%s%d: pte %p pa %p\n",buf,i,pte,child);
++			vmprint((pagetable_t)child,level + 1);
++		}
++	}
++}
++
++uint64 access_check(pagetable_t pagetable, uint64 va)
++{
++	if (va >= MAXVA)
++		panic("walk");
++	uint64 mask = 0;
++	for (int pages = 0; pages < 32; pages++,va += PGSIZE)
++	{
++		pte_t* pte = 0;
++		pagetable_t p = pagetable;
++		for (int level = 2; level >= 0; level--)
++		{
++			pte = &p[PX(level,va)];
++			if (*pte & PTE_V)
++				p = (pagetable_t)PTE2PA(*pte);
++		}
++		if (*pte & PTE_V && *pte & PTE_A)
++		{
++			mask |= (1L << pages);
++			*pte &= ~(PTE_A);
++		}
++	}
++	return mask;	
++}
+diff --git a/time.txt b/time.txt
+new file mode 100644
+index 0000000..86ee83a
+--- /dev/null
++++ b/time.txt
+@@ -0,0 +1 @@
++40
+\ No newline at end of file

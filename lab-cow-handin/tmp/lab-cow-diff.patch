@@ -1,192 +1,1135 @@
 diff --git a/kernel/defs.h b/kernel/defs.h
-index 3564db4..297ed11 100644
+index 3564db4..6249cfb 100644
 --- a/kernel/defs.h
 +++ b/kernel/defs.h
-@@ -63,6 +63,7 @@ void            ramdiskrw(struct buf*);
- void*           kalloc(void);
- void            kfree(void *);
+@@ -11,7 +11,7 @@ struct superblock;
+ 
+ // bio.c
+ void            binit(void);
+-struct buf*     bread(uint, uint);
++struct buf* bread(uint, uint);
+ void            brelse(struct buf*);
+ void            bwrite(struct buf*);
+ void            bpin(struct buf*);
+@@ -26,9 +26,9 @@ void            consputc(int);
+ int             exec(char*, char**);
+ 
+ // file.c
+-struct file*    filealloc(void);
++struct file* filealloc(void);
+ void            fileclose(struct file*);
+-struct file*    filedup(struct file*);
++struct file* filedup(struct file*);
+ void            fileinit(void);
+ int             fileread(struct file*, uint64, int n);
+ int             filestat(struct file*, uint64 addr);
+@@ -37,9 +37,9 @@ int             filewrite(struct file*, uint64, int n);
+ // fs.c
+ void            fsinit(int);
+ int             dirlink(struct inode*, char*, uint);
+-struct inode*   dirlookup(struct inode*, char*, uint*);
+-struct inode*   ialloc(uint, short);
+-struct inode*   idup(struct inode*);
++struct inode* dirlookup(struct inode*, char*, uint*);
++struct inode* ialloc(uint, short);
++struct inode* idup(struct inode*);
+ void            iinit();
+ void            ilock(struct inode*);
+ void            iput(struct inode*);
+@@ -47,8 +47,8 @@ void            iunlock(struct inode*);
+ void            iunlockput(struct inode*);
+ void            iupdate(struct inode*);
+ int             namecmp(const char*, const char*);
+-struct inode*   namei(char*);
+-struct inode*   nameiparent(char*, char*);
++struct inode* namei(char*);
++struct inode* nameiparent(char*, char*);
+ int             readi(struct inode*, int, uint64, uint, uint);
+ void            stati(struct inode*, struct stat*);
+ int             writei(struct inode*, int, uint64, uint, uint);
+@@ -60,9 +60,11 @@ void            ramdiskintr(void);
+ void            ramdiskrw(struct buf*);
+ 
+ // kalloc.c
+-void*           kalloc(void);
+-void            kfree(void *);
++void* kalloc(void);
++void            kfree(void*);
  void            kinit(void);
-+int             cow_alloc(pagetable_t, uint64);
++void            krefpage(void*);
++void* kcopy_n_deref(void* pa);
  
  // log.c
  void            initlog(int, struct superblock*);
-@@ -170,6 +171,7 @@ uint64          walkaddr(pagetable_t, uint64);
- int             copyout(pagetable_t, uint64, char *, uint64);
- int             copyin(pagetable_t, char *, uint64, uint64);
- int             copyinstr(pagetable_t, char *, uint64, uint64);
-+pte_t*          walk(pagetable_t, uint64, int);
+@@ -86,23 +88,23 @@ int             cpuid(void);
+ void            exit(int);
+ int             fork(void);
+ int             growproc(int);
+-void            proc_mapstacks(pagetable_t);
+-pagetable_t     proc_pagetable(struct proc *);
++pagetable_t     proc_pagetable(struct proc*);
+ void            proc_freepagetable(pagetable_t, uint64);
+ int             kill(int);
+-struct cpu*     mycpu(void);
+-struct cpu*     getmycpu(void);
+-struct proc*    myproc();
++struct cpu* mycpu(void);
++struct cpu* getmycpu(void);
++struct proc* myproc();
+ void            procinit(void);
+ void            scheduler(void) __attribute__((noreturn));
+ void            sched(void);
++void            setproc(struct proc*);
+ void            sleep(void*, struct spinlock*);
+ void            userinit(void);
+ int             wait(uint64);
+ void            wakeup(void*);
+ void            yield(void);
+-int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
+-int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
++int             either_copyout(int user_dst, uint64 dst, void* src, uint64 len);
++int             either_copyin(void* dst, int user_src, uint64 src, uint64 len);
+ void            procdump(void);
+ 
+ // swtch.S
+@@ -124,17 +126,17 @@ void            initsleeplock(struct sleeplock*, char*);
+ 
+ // string.c
+ int             memcmp(const void*, const void*, uint);
+-void*           memmove(void*, const void*, uint);
+-void*           memset(void*, int, uint);
+-char*           safestrcpy(char*, const char*, int);
++void* memmove(void*, const void*, uint);
++void* memset(void*, int, uint);
++char* safestrcpy(char*, const char*, int);
+ int             strlen(const char*);
+ int             strncmp(const char*, const char*, uint);
+-char*           strncpy(char*, const char*, int);
++char* strncpy(char*, const char*, int);
+ 
+ // syscall.c
+ int             argint(int, int*);
+ int             argstr(int, char*, int);
+-int             argaddr(int, uint64 *);
++int             argaddr(int, uint64*);
+ int             fetchstr(uint64, char*, int);
+ int             fetchaddr(uint64, uint64*);
+ void            syscall();
+@@ -156,10 +158,11 @@ int             uartgetc(void);
+ // vm.c
+ void            kvminit(void);
+ void            kvminithart(void);
+-void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
++uint64          kvmpa(uint64);
++void            kvmmap(uint64, uint64, uint64, int);
+ int             mappages(pagetable_t, uint64, uint64, uint64, int);
+ pagetable_t     uvmcreate(void);
+-void            uvminit(pagetable_t, uchar *, uint);
++void            uvminit(pagetable_t, uchar*, uint);
+ uint64          uvmalloc(pagetable_t, uint64, uint64);
+ uint64          uvmdealloc(pagetable_t, uint64, uint64);
+ int             uvmcopy(pagetable_t, pagetable_t, uint64);
+@@ -167,9 +170,11 @@ void            uvmfree(pagetable_t, uint64);
+ void            uvmunmap(pagetable_t, uint64, uint64, int);
+ void            uvmclear(pagetable_t, uint64);
+ uint64          walkaddr(pagetable_t, uint64);
+-int             copyout(pagetable_t, uint64, char *, uint64);
+-int             copyin(pagetable_t, char *, uint64, uint64);
+-int             copyinstr(pagetable_t, char *, uint64, uint64);
++int             copyout(pagetable_t, uint64, char*, uint64);
++int             copyin(pagetable_t, char*, uint64, uint64);
++int             copyinstr(pagetable_t, char*, uint64, uint64);
++int             uvmcheckcowpage(uint64 va);
++int             uvmcowcopy(uint64 va);
  
  // plic.c
  void            plicinit(void);
+@@ -179,7 +184,7 @@ void            plic_complete(int);
+ 
+ // virtio_disk.c
+ void            virtio_disk_init(void);
+-void            virtio_disk_rw(struct buf *, int);
++void            virtio_disk_rw(struct buf*, int);
+ void            virtio_disk_intr(void);
+ 
+ // number of elements in fixed-size array
 diff --git a/kernel/kalloc.c b/kernel/kalloc.c
-index fa6a0ac..f7d804c 100644
+index fa6a0ac..97d0587 100644
 --- a/kernel/kalloc.c
 +++ b/kernel/kalloc.c
-@@ -9,6 +9,8 @@
- #include "riscv.h"
- #include "defs.h"
+@@ -23,10 +23,25 @@ struct {
+   struct run *freelist;
+ } kmem;
  
-+uint page_ref[(PHYSTOP - KERNBASE) / PGSIZE];
++// For indexing the copy-on-write page reference count array
++#define PA2PGREF_ID(p) (((p)-KERNBASE)/PGSIZE)
++#define PGREF_MAX_ENTRIES PA2PGREF_ID(PHYSTOP)
 +
- void freerange(void *pa_start, void *pa_end);
- 
- extern char end[]; // first address after kernel.
-@@ -46,11 +48,20 @@ freerange(void *pa_start, void *pa_end)
++struct spinlock pgreflock;
++int pageref[PGREF_MAX_ENTRIES]; // reference count for each physical page
++// note:  reference counts are incremented on fork, not on mapping. this means that
++//        multiple mappings of the same physical page within a single process are only
++//        counted as one reference.
++//        this shouldn't be a problem, though. as there's no way for a user program to map
++//        a physical page twice within it's address space in xv6.
++
++#define PA2PGREF(p) pageref[PA2PGREF_ID((uint64)(p))]
++
  void
- kfree(void *pa)
+ kinit()
  {
--  struct run *r;
-+  struct run *r;  
+   initlock(&kmem.lock, "kmem");
++  initlock(&pgreflock, "pgref");
+   freerange(end, (void*)PHYSTOP);
+ }
  
+@@ -51,15 +66,22 @@ kfree(void *pa)
    if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
      panic("kfree");
  
-+  //acquire(&ref_lock);
-+  if(page_ref[COW_INDEX(pa)] > 1) {
-+    page_ref[COW_INDEX(pa)]--;
-+    //release(&ref_lock);
-+    return;
-+  }
-+  page_ref[COW_INDEX(pa)] = 0;
-+  //release(&ref_lock);
-+
-   // Fill with junk to catch dangling refs.
-   memset(pa, 1, PGSIZE);
+-  // Fill with junk to catch dangling refs.
+-  memset(pa, 1, PGSIZE);
++  acquire(&pgreflock);
++  if(--PA2PGREF(pa) <= 0) {
++    // when the reference count of the page goes to zero, free the page
  
-@@ -76,7 +87,34 @@ kalloc(void)
+-  r = (struct run*)pa;
++    // Fill with junk to catch dangling refs.
++    // pa will be memset multiple times if race-condition occurred.
++    memset(pa, 1, PGSIZE);
+ 
+-  acquire(&kmem.lock);
+-  r->next = kmem.freelist;
+-  kmem.freelist = r;
+-  release(&kmem.lock);
++    r = (struct run*)pa;
++
++    acquire(&kmem.lock);
++    r->next = kmem.freelist;
++    kmem.freelist = r;
++    release(&kmem.lock);
++  }
++  release(&pgreflock);
+ }
+ 
+ // Allocate one 4096-byte page of physical memory.
+@@ -76,7 +98,44 @@ kalloc(void)
      kmem.freelist = r->next;
    release(&kmem.lock);
  
 -  if(r)
-+  if(r) {
++  if(r){
      memset((char*)r, 5, PGSIZE); // fill with junk
-+    page_ref[COW_INDEX(r)] = 1;
++    // reference count for a physical page is always 1 after allocation.
++    // (no need to lock this operation)
++    PA2PGREF(r) = 1;
 +  }
++  
    return (void*)r;
  }
++// Decrease reference to the page by one if it's more than one, then
++// allocate a new physical page and copy the page into it.
++// (Effectively turing one reference into one copy.)
++// 
++// Do nothing and simply return pa when reference count is already
++// less than or equal to 1.
++void *kcopy_n_deref(void *pa) {
++  acquire(&pgreflock);
 +
-+int
-+cow_alloc(pagetable_t pagetable, uint64 va) {
-+  va = PGROUNDDOWN(va);
-+  if(va >= MAXVA) return -1;
-+  pte_t *pte = walk(pagetable, va, 0);
-+  if(pte == 0) return -1;
-+  uint64 pa = PTE2PA(*pte);
-+  if(pa == 0) return -1;
-+  uint64 flags = PTE_FLAGS(*pte);
-+  if(flags & PTE_COW) {
-+    uint64 mem = (uint64)kalloc();
-+    if (mem == 0) return -1;
-+    memmove((char*)mem, (char*)pa, PGSIZE);
-+    uvmunmap(pagetable, va, 1, 1);
-+    flags = (flags | PTE_W) & ~PTE_COW;
-+    //*pte = PA2PTE(mem) | flags;
-+	if (mappages(pagetable, va, PGSIZE, mem, flags) != 0) {
-+      kfree((void*)mem);
-+      return -1;
-+    }
++  if(PA2PGREF(pa) <= 1) {
++    release(&pgreflock);
++    return pa;
 +  }
-+  return 0;
++
++  uint64 newpa = (uint64)kalloc();
++  if(newpa == 0) {
++    release(&pgreflock);
++    return 0; // out of memory
++  }
++  memmove((void*)newpa, (void*)pa, PGSIZE);
++  PA2PGREF(pa)--;
++
++  release(&pgreflock);
++  return (void*)newpa;
 +}
 +
-diff --git a/kernel/riscv.h b/kernel/riscv.h
-index 1691faf..008f7dc 100644
---- a/kernel/riscv.h
-+++ b/kernel/riscv.h
-@@ -343,6 +343,8 @@ sfence_vma()
- #define PTE_W (1L << 2)
- #define PTE_X (1L << 3)
- #define PTE_U (1L << 4) // 1 -> user can access
-+#define PTE_COW (1L << 8)
-+#define COW_INDEX(pa) (((uint64)(pa) - KERNBASE) >> 12)
++// increase reference count of the page by one
++void krefpage(void *pa) {
++  acquire(&pgreflock);
++  PA2PGREF(pa)++;
++  release(&pgreflock);
++}
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 22e7ce4..ebbf5a2 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -16,32 +16,11 @@ int nextpid = 1;
+ struct spinlock pid_lock;
  
- // shift a physical address to the right place for a PTE.
- #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
-diff --git a/kernel/trap.c b/kernel/trap.c
-index a63249e..4329d6e 100644
---- a/kernel/trap.c
-+++ b/kernel/trap.c
-@@ -65,6 +65,12 @@ usertrap(void)
-     intr_on();
- 
-     syscall();
-+  } else if(r_scause() == 15) {
-+    uint64 va = r_stval();
-+    if(va >= p->sz)
-+      p->killed = 1;
-+    else if(cow_alloc(p->pagetable, va) != 0)
-+      p->killed = 1;
-   } else if((which_dev = devintr()) != 0){
-     // ok
-   } else {
-diff --git a/kernel/vm.c b/kernel/vm.c
-index d5a12a0..f4ae543 100644
---- a/kernel/vm.c
-+++ b/kernel/vm.c
-@@ -15,6 +15,8 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
+ extern void forkret(void);
++static void wakeup1(struct proc *chan);
+ static void freeproc(struct proc *p);
  
  extern char trampoline[]; // trampoline.S
  
-+extern uint page_ref[]; // kalloc.c
+-// helps ensure that wakeups of wait()ing
+-// parents are not lost. helps obey the
+-// memory model when using p->parent.
+-// must be acquired before any p->lock.
+-struct spinlock wait_lock;
+-
+-// Allocate a page for each process's kernel stack.
+-// Map it high in memory, followed by an invalid
+-// guard page.
+-void
+-proc_mapstacks(pagetable_t kpgtbl) {
+-  struct proc *p;
+-  
+-  for(p = proc; p < &proc[NPROC]; p++) {
+-    char *pa = kalloc();
+-    if(pa == 0)
+-      panic("kalloc");
+-    uint64 va = KSTACK((int) (p - proc));
+-    kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+-  }
+-}
+-
+ // initialize the proc table at boot time.
+ void
+ procinit(void)
+@@ -49,11 +28,20 @@ procinit(void)
+   struct proc *p;
+   
+   initlock(&pid_lock, "nextpid");
+-  initlock(&wait_lock, "wait_lock");
+   for(p = proc; p < &proc[NPROC]; p++) {
+       initlock(&p->lock, "proc");
+-      p->kstack = KSTACK((int) (p - proc));
 +
- // Make a direct-map page table for the kernel.
- pagetable_t
- kvmmake(void)
-@@ -303,7 +305,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
++      // Allocate a page for the process's kernel stack.
++      // Map it high in memory, followed by an invalid
++      // guard page.
++      char *pa = kalloc();
++      if(pa == 0)
++        panic("kalloc");
++      uint64 va = KSTACK((int) (p - proc));
++      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
++      p->kstack = va;
+   }
++  kvminithart();
+ }
+ 
+ // Must be called with interrupts disabled,
+@@ -118,11 +106,9 @@ allocproc(void)
+ 
+ found:
+   p->pid = allocpid();
+-  p->state = USED;
+ 
+   // Allocate a trapframe page.
+   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+-    freeproc(p);
+     release(&p->lock);
+     return 0;
+   }
+@@ -289,6 +275,8 @@ fork(void)
+   }
+   np->sz = p->sz;
+ 
++  np->parent = p;
++
+   // copy saved user registers.
+   *(np->trapframe) = *(p->trapframe);
+ 
+@@ -305,30 +293,35 @@ fork(void)
+ 
+   pid = np->pid;
+ 
+-  release(&np->lock);
+-
+-  acquire(&wait_lock);
+-  np->parent = p;
+-  release(&wait_lock);
+-
+-  acquire(&np->lock);
+   np->state = RUNNABLE;
++
+   release(&np->lock);
+ 
+   return pid;
+ }
+ 
+ // Pass p's abandoned children to init.
+-// Caller must hold wait_lock.
++// Caller must hold p->lock.
+ void
+ reparent(struct proc *p)
+ {
+   struct proc *pp;
+ 
+   for(pp = proc; pp < &proc[NPROC]; pp++){
++    // this code uses pp->parent without holding pp->lock.
++    // acquiring the lock first could cause a deadlock
++    // if pp or a child of pp were also in exit()
++    // and about to try to lock p.
+     if(pp->parent == p){
++      // pp->parent can't change between the check and the acquire()
++      // because only the parent changes it, and we're the parent.
++      acquire(&pp->lock);
+       pp->parent = initproc;
+-      wakeup(initproc);
++      // we should wake up init here, but that would require
++      // initproc->lock, which would be a deadlock, since we hold
++      // the lock on one of init's children (pp). this is why
++      // exit() always wakes init (before acquiring any locks).
++      release(&pp->lock);
+     }
+   }
+ }
+@@ -358,20 +351,41 @@ exit(int status)
+   end_op();
+   p->cwd = 0;
+ 
+-  acquire(&wait_lock);
++  // we might re-parent a child to init. we can't be precise about
++  // waking up init, since we can't acquire its lock once we've
++  // acquired any other proc lock. so wake up init whether that's
++  // necessary or not. init may miss this wakeup, but that seems
++  // harmless.
++  acquire(&initproc->lock);
++  wakeup1(initproc);
++  release(&initproc->lock);
++
++  // grab a copy of p->parent, to ensure that we unlock the same
++  // parent we locked. in case our parent gives us away to init while
++  // we're waiting for the parent lock. we may then race with an
++  // exiting parent, but the result will be a harmless spurious wakeup
++  // to a dead or wrong process; proc structs are never re-allocated
++  // as anything else.
++  acquire(&p->lock);
++  struct proc *original_parent = p->parent;
++  release(&p->lock);
++  
++  // we need the parent's lock in order to wake it up from wait().
++  // the parent-then-child rule says we have to lock it first.
++  acquire(&original_parent->lock);
++
++  acquire(&p->lock);
+ 
+   // Give any children to init.
+   reparent(p);
+ 
+   // Parent might be sleeping in wait().
+-  wakeup(p->parent);
+-  
+-  acquire(&p->lock);
++  wakeup1(original_parent);
+ 
+   p->xstate = status;
+   p->state = ZOMBIE;
+ 
+-  release(&wait_lock);
++  release(&original_parent->lock);
+ 
+   // Jump into the scheduler, never to return.
+   sched();
+@@ -387,16 +401,21 @@ wait(uint64 addr)
+   int havekids, pid;
+   struct proc *p = myproc();
+ 
+-  acquire(&wait_lock);
++  // hold p->lock for the whole time to avoid lost
++  // wakeups from a child's exit().
++  acquire(&p->lock);
+ 
+   for(;;){
+     // Scan through table looking for exited children.
+     havekids = 0;
+     for(np = proc; np < &proc[NPROC]; np++){
++      // this code uses np->parent without holding np->lock.
++      // acquiring the lock first would cause a deadlock,
++      // since np might be an ancestor, and we already hold p->lock.
+       if(np->parent == p){
+-        // make sure the child isn't still in exit() or swtch().
++        // np->parent can't change between the check and the acquire()
++        // because only the parent changes it, and we're the parent.
+         acquire(&np->lock);
+-
+         havekids = 1;
+         if(np->state == ZOMBIE){
+           // Found one.
+@@ -404,12 +423,12 @@ wait(uint64 addr)
+           if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+                                   sizeof(np->xstate)) < 0) {
+             release(&np->lock);
+-            release(&wait_lock);
++            release(&p->lock);
+             return -1;
+           }
+           freeproc(np);
+           release(&np->lock);
+-          release(&wait_lock);
++          release(&p->lock);
+           return pid;
+         }
+         release(&np->lock);
+@@ -418,12 +437,12 @@ wait(uint64 addr)
+ 
+     // No point waiting if we don't have any children.
+     if(!havekids || p->killed){
+-      release(&wait_lock);
++      release(&p->lock);
+       return -1;
+     }
+     
+     // Wait for a child to exit.
+-    sleep(p, &wait_lock);  //DOC: wait-sleep
++    sleep(p, &p->lock);  //DOC: wait-sleep
+   }
+ }
+ 
+@@ -444,9 +463,13 @@ scheduler(void)
+   for(;;){
+     // Avoid deadlock by ensuring that devices can interrupt.
+     intr_on();
+-
++    
++    int nproc = 0;
+     for(p = proc; p < &proc[NPROC]; p++) {
+       acquire(&p->lock);
++      if(p->state != UNUSED) {
++        nproc++;
++      }
+       if(p->state == RUNNABLE) {
+         // Switch to chosen process.  It is the process's job
+         // to release its lock and then reacquire it
+@@ -461,6 +484,10 @@ scheduler(void)
+       }
+       release(&p->lock);
+     }
++    if(nproc <= 2) {   // only init and sh exist
++      intr_on();
++      asm volatile("wfi");
++    }
+   }
+ }
+ 
+@@ -536,9 +563,10 @@ sleep(void *chan, struct spinlock *lk)
+   // guaranteed that we won't miss any wakeup
+   // (wakeup locks p->lock),
+   // so it's okay to release lk.
+-
+-  acquire(&p->lock);  //DOC: sleeplock1
+-  release(lk);
++  if(lk != &p->lock){  //DOC: sleeplock0
++    acquire(&p->lock);  //DOC: sleeplock1
++    release(lk);
++  }
+ 
+   // Go to sleep.
+   p->chan = chan;
+@@ -550,8 +578,10 @@ sleep(void *chan, struct spinlock *lk)
+   p->chan = 0;
+ 
+   // Reacquire original lock.
+-  release(&p->lock);
+-  acquire(lk);
++  if(lk != &p->lock){
++    release(&p->lock);
++    acquire(lk);
++  }
+ }
+ 
+ // Wake up all processes sleeping on chan.
+@@ -562,13 +592,23 @@ wakeup(void *chan)
+   struct proc *p;
+ 
+   for(p = proc; p < &proc[NPROC]; p++) {
+-    if(p != myproc()){
+-      acquire(&p->lock);
+-      if(p->state == SLEEPING && p->chan == chan) {
+-        p->state = RUNNABLE;
+-      }
+-      release(&p->lock);
++    acquire(&p->lock);
++    if(p->state == SLEEPING && p->chan == chan) {
++      p->state = RUNNABLE;
+     }
++    release(&p->lock);
++  }
++}
++
++// Wake up p if it is sleeping in wait(); used by exit().
++// Caller must hold p->lock.
++static void
++wakeup1(struct proc *p)
++{
++  if(!holding(&p->lock))
++    panic("wakeup1");
++  if(p->chan == p && p->state == SLEEPING) {
++    p->state = RUNNABLE;
+   }
+ }
+ 
+diff --git a/kernel/riscv.h b/kernel/riscv.h
+index 1691faf..b4f9b7b 100644
+--- a/kernel/riscv.h
++++ b/kernel/riscv.h
+@@ -3,7 +3,7 @@ static inline uint64
+ r_mhartid()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, mhartid" : "=r" (x) );
++  asm volatile("csrr %0, mhartid" : "=r" (x));
+   return x;
+ }
+ 
+@@ -19,11 +19,11 @@ static inline uint64
+ r_mstatus()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, mstatus" : "=r" (x) );
++  asm volatile("csrr %0, mstatus" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_mstatus(uint64 x)
+ {
+   asm volatile("csrw mstatus, %0" : : "r" (x));
+@@ -32,12 +32,35 @@ w_mstatus(uint64 x)
+ // machine exception program counter, holds the
+ // instruction address to which a return from
+ // exception will go.
+-static inline void 
++static inline void
+ w_mepc(uint64 x)
+ {
+   asm volatile("csrw mepc, %0" : : "r" (x));
+ }
+ 
++// physical memory protection CSRs
++#define PMP_R (1L << 0)
++#define PMP_W (1L << 1)
++#define PMP_X (1L << 2)
++// naturally aligned power of two
++#define PMP_MATCH_NAPOT (3L << 3)
++
++// we only implement accessing one PMP register
++
++// write to the first 8 PMP configuration registers
++static inline void
++w_pmpcfg0(uint64 x)
++{
++  asm volatile("csrw pmpcfg0, %0" : : "r" (x));
++}
++
++// write to the address for PMP region 0
++static inline void
++w_pmpaddr0(uint64 x)
++{
++  asm volatile("csrw pmpaddr0, %0" : : "r" (x));
++}
++
+ // Supervisor Status Register, sstatus
+ 
+ #define SSTATUS_SPP (1L << 8)  // Previous mode, 1=Supervisor, 0=User
+@@ -50,11 +73,11 @@ static inline uint64
+ r_sstatus()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, sstatus" : "=r" (x) );
++  asm volatile("csrr %0, sstatus" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_sstatus(uint64 x)
+ {
+   asm volatile("csrw sstatus, %0" : : "r" (x));
+@@ -65,11 +88,11 @@ static inline uint64
+ r_sip()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, sip" : "=r" (x) );
++  asm volatile("csrr %0, sip" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_sip(uint64 x)
+ {
+   asm volatile("csrw sip, %0" : : "r" (x));
+@@ -83,11 +106,11 @@ static inline uint64
+ r_sie()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, sie" : "=r" (x) );
++  asm volatile("csrr %0, sie" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_sie(uint64 x)
+ {
+   asm volatile("csrw sie, %0" : : "r" (x));
+@@ -101,20 +124,20 @@ static inline uint64
+ r_mie()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, mie" : "=r" (x) );
++  asm volatile("csrr %0, mie" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_mie(uint64 x)
+ {
+   asm volatile("csrw mie, %0" : : "r" (x));
+ }
+ 
+-// supervisor exception program counter, holds the
++// machine exception program counter, holds the
+ // instruction address to which a return from
+ // exception will go.
+-static inline void 
++static inline void
+ w_sepc(uint64 x)
+ {
+   asm volatile("csrw sepc, %0" : : "r" (x));
+@@ -124,7 +147,7 @@ static inline uint64
+ r_sepc()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, sepc" : "=r" (x) );
++  asm volatile("csrr %0, sepc" : "=r" (x));
+   return x;
+ }
+ 
+@@ -133,11 +156,11 @@ static inline uint64
+ r_medeleg()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, medeleg" : "=r" (x) );
++  asm volatile("csrr %0, medeleg" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_medeleg(uint64 x)
+ {
+   asm volatile("csrw medeleg, %0" : : "r" (x));
+@@ -148,11 +171,11 @@ static inline uint64
+ r_mideleg()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, mideleg" : "=r" (x) );
++  asm volatile("csrr %0, mideleg" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_mideleg(uint64 x)
+ {
+   asm volatile("csrw mideleg, %0" : : "r" (x));
+@@ -160,7 +183,7 @@ w_mideleg(uint64 x)
+ 
+ // Supervisor Trap-Vector Base Address
+ // low two bits are mode.
+-static inline void 
++static inline void
+ w_stvec(uint64 x)
+ {
+   asm volatile("csrw stvec, %0" : : "r" (x));
+@@ -170,29 +193,17 @@ static inline uint64
+ r_stvec()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, stvec" : "=r" (x) );
++  asm volatile("csrr %0, stvec" : "=r" (x));
+   return x;
+ }
+ 
+ // Machine-mode interrupt vector
+-static inline void 
++static inline void
+ w_mtvec(uint64 x)
+ {
+   asm volatile("csrw mtvec, %0" : : "r" (x));
+ }
+ 
+-static inline void
+-w_pmpcfg0(uint64 x)
+-{
+-  asm volatile("csrw pmpcfg0, %0" : : "r" (x));
+-}
+-
+-static inline void
+-w_pmpaddr0(uint64 x)
+-{
+-  asm volatile("csrw pmpaddr0, %0" : : "r" (x));
+-}
+-
+ // use riscv's sv39 page table scheme.
+ #define SATP_SV39 (8L << 60)
+ 
+@@ -200,7 +211,7 @@ w_pmpaddr0(uint64 x)
+ 
+ // supervisor address translation and protection;
+ // holds the address of the page table.
+-static inline void 
++static inline void
+ w_satp(uint64 x)
+ {
+   asm volatile("csrw satp, %0" : : "r" (x));
+@@ -210,18 +221,18 @@ static inline uint64
+ r_satp()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, satp" : "=r" (x) );
++  asm volatile("csrr %0, satp" : "=r" (x));
+   return x;
+ }
+ 
+ // Supervisor Scratch register, for early trap handler in trampoline.S.
+-static inline void 
++static inline void
+ w_sscratch(uint64 x)
+ {
+   asm volatile("csrw sscratch, %0" : : "r" (x));
+ }
+ 
+-static inline void 
++static inline void
+ w_mscratch(uint64 x)
+ {
+   asm volatile("csrw mscratch, %0" : : "r" (x));
+@@ -232,7 +243,7 @@ static inline uint64
+ r_scause()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, scause" : "=r" (x) );
++  asm volatile("csrr %0, scause" : "=r" (x));
+   return x;
+ }
+ 
+@@ -241,12 +252,12 @@ static inline uint64
+ r_stval()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, stval" : "=r" (x) );
++  asm volatile("csrr %0, stval" : "=r" (x));
+   return x;
+ }
+ 
+ // Machine-mode Counter-Enable
+-static inline void 
++static inline void
+ w_mcounteren(uint64 x)
+ {
+   asm volatile("csrw mcounteren, %0" : : "r" (x));
+@@ -256,7 +267,7 @@ static inline uint64
+ r_mcounteren()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, mcounteren" : "=r" (x) );
++  asm volatile("csrr %0, mcounteren" : "=r" (x));
+   return x;
+ }
+ 
+@@ -265,7 +276,7 @@ static inline uint64
+ r_time()
+ {
+   uint64 x;
+-  asm volatile("csrr %0, time" : "=r" (x) );
++  asm volatile("csrr %0, time" : "=r" (x));
+   return x;
+ }
+ 
+@@ -295,7 +306,7 @@ static inline uint64
+ r_sp()
+ {
+   uint64 x;
+-  asm volatile("mv %0, sp" : "=r" (x) );
++  asm volatile("mv %0, sp" : "=r" (x));
+   return x;
+ }
+ 
+@@ -305,11 +316,11 @@ static inline uint64
+ r_tp()
+ {
+   uint64 x;
+-  asm volatile("mv %0, tp" : "=r" (x) );
++  asm volatile("mv %0, tp" : "=r" (x));
+   return x;
+ }
+ 
+-static inline void 
++static inline void
+ w_tp(uint64 x)
+ {
+   asm volatile("mv tp, %0" : : "r" (x));
+@@ -319,7 +330,7 @@ static inline uint64
+ r_ra()
+ {
+   uint64 x;
+-  asm volatile("mv %0, ra" : "=r" (x) );
++  asm volatile("mv %0, ra" : "=r" (x));
+   return x;
+ }
+ 
+@@ -343,6 +354,7 @@ sfence_vma()
+ #define PTE_W (1L << 2)
+ #define PTE_X (1L << 3)
+ #define PTE_U (1L << 4) // 1 -> user can access
++#define PTE_COW (1L << 8) // copy-on-write page, use the reserved 8th bit of a pte flag.
+ 
+ // shift a physical address to the right place for a PTE.
+ #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
+@@ -363,4 +375,4 @@ sfence_vma()
+ #define MAXVA (1L << (9 + 9 + 9 + 12 - 1))
+ 
+ typedef uint64 pte_t;
+-typedef uint64 *pagetable_t; // 512 PTEs
++typedef uint64* pagetable_t; // 512 PTEs
+diff --git a/kernel/trap.c b/kernel/trap.c
+index a63249e..089bdb6 100644
+--- a/kernel/trap.c
++++ b/kernel/trap.c
+@@ -67,6 +67,10 @@ usertrap(void)
+     syscall();
+   } else if((which_dev = devintr()) != 0){
+     // ok
++  } else if((r_scause() == 13 || r_scause() == 15) && uvmcheckcowpage(r_stval())) { // copy-on-write
++    if(uvmcowcopy(r_stval()) == -1){
++      p->killed = 1;
++    }
+   } else {
+     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+diff --git a/kernel/vm.c b/kernel/vm.c
+index d5a12a0..4cb22ff 100644
+--- a/kernel/vm.c
++++ b/kernel/vm.c
+@@ -5,6 +5,8 @@
+ #include "riscv.h"
+ #include "defs.h"
+ #include "fs.h"
++#include "spinlock.h"
++#include "proc.h"
+ 
+ /*
+  * the kernel's page table.
+@@ -15,45 +17,36 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
+ 
+ extern char trampoline[]; // trampoline.S
+ 
+-// Make a direct-map page table for the kernel.
+-pagetable_t
+-kvmmake(void)
++/*
++ * create a direct-map page table for the kernel.
++ */
++void
++kvminit()
+ {
+-  pagetable_t kpgtbl;
+-
+-  kpgtbl = (pagetable_t) kalloc();
+-  memset(kpgtbl, 0, PGSIZE);
++  kernel_pagetable = (pagetable_t) kalloc();
++  memset(kernel_pagetable, 0, PGSIZE);
+ 
+   // uart registers
+-  kvmmap(kpgtbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
++  kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
+ 
+   // virtio mmio disk interface
+-  kvmmap(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
++  kvmmap(VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
++
++  // CLINT
++  kvmmap(CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+ 
+   // PLIC
+-  kvmmap(kpgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
++  kvmmap(PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+ 
+   // map kernel text executable and read-only.
+-  kvmmap(kpgtbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
++  kvmmap(KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+ 
+   // map kernel data and the physical RAM we'll make use of.
+-  kvmmap(kpgtbl, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
++  kvmmap((uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+ 
+   // map the trampoline for trap entry/exit to
+   // the highest virtual address in the kernel.
+-  kvmmap(kpgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+-
+-  // map kernel stacks
+-  proc_mapstacks(kpgtbl);
+-  
+-  return kpgtbl;
+-}
+-
+-// Initialize the one kernel_pagetable
+-void
+-kvminit(void)
+-{
+-  kernel_pagetable = kvmmake();
++  kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+ }
+ 
+ // Switch h/w page table register to the kernel's page table,
+@@ -124,12 +117,32 @@ walkaddr(pagetable_t pagetable, uint64 va)
+ // only used when booting.
+ // does not flush TLB or enable paging.
+ void
+-kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
++kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
+ {
+-  if(mappages(kpgtbl, va, sz, pa, perm) != 0)
++  if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
+     panic("kvmmap");
+ }
+ 
++// translate a kernel virtual address to
++// a physical address. only needed for
++// addresses on the stack.
++// assumes va is page aligned.
++uint64
++kvmpa(uint64 va)
++{
++  uint64 off = va % PGSIZE;
++  pte_t *pte;
++  uint64 pa;
++  
++  pte = walk(kernel_pagetable, va, 0);
++  if(pte == 0)
++    panic("kvmpa");
++  if((*pte & PTE_V) == 0)
++    panic("kvmpa");
++  pa = PTE2PA(*pte);
++  return pa+off;
++}
++
+ // Create PTEs for virtual addresses starting at va that refer to
+ // physical addresses starting at pa. va and size might not
+ // be page-aligned. Returns 0 on success, -1 if walk() couldn't
+@@ -140,16 +153,13 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
+   uint64 a, last;
+   pte_t *pte;
+ 
+-  if(size == 0)
+-    panic("mappages: size");
+-  
+   a = PGROUNDDOWN(va);
+   last = PGROUNDDOWN(va + size - 1);
+   for(;;){
+     if((pte = walk(pagetable, a, 1)) == 0)
+       return -1;
+     if(*pte & PTE_V)
+-      panic("mappages: remap");
++      panic("remap");
+     *pte = PA2PTE(pa) | perm | PTE_V;
+     if(a == last)
+       break;
+@@ -303,7 +313,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
    pte_t *pte;
    uint64 pa, i;
    uint flags;
 -  char *mem;
-+  //char *mem;
++  // char *mem;
  
    for(i = 0; i < sz; i += PGSIZE){
      if((pte = walk(old, i, 0)) == 0)
-@@ -311,14 +313,18 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+@@ -311,14 +321,25 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
      if((*pte & PTE_V) == 0)
        panic("uvmcopy: page not present");
      pa = PTE2PA(*pte);
-+    *pte = (*pte & ~PTE_W) | PTE_COW;
++    if(*pte & PTE_W) {
++      // clear out PTE_W for parent, set PTE_COW
++      *pte = (*pte & ~PTE_W) | PTE_COW;
++    }
      flags = PTE_FLAGS(*pte);
 -    if((mem = kalloc()) == 0)
 -      goto err;
 -    memmove(mem, (char*)pa, PGSIZE);
 -    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
 -      kfree(mem);
-+    //if((mem = kalloc()) == 0)
-+    //  goto err;
-+    //memmove(mem, (char*)pa, PGSIZE);
-+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
-+      //kfree(mem);
++    // map physical page of parent directly to child (copy-on-write)
++    // since the write flag has already been cleared for the parent
++    // the child mapping won't have the write flag as well.
++    //
++    // for page that is already read-only for parent, it will be read-
++    // only for child as well.
++    // for read-only page that is also a cow page, the PTE_COW flag will
++    // be copied over to child page, making it a cow page automatically.
++    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
        goto err;
      }
-+    //acquire(&ref_lock);
-+    page_ref[COW_INDEX(pa)]++;
-+    //release(&ref_lock);
++    // for any cases above, we created a new reference to the physical
++    // page, so increase reference count by one.
++    krefpage((void*)pa);
    }
    return 0;
  
-@@ -347,15 +353,21 @@ int
- copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
- {
+@@ -349,6 +370,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
    uint64 n, va0, pa0;
-+  pte_t *pte;
  
    while(len > 0){
++    if(uvmcheckcowpage(dstva))
++      uvmcowcopy(dstva);
      va0 = PGROUNDDOWN(dstva);
-+    if (cow_alloc(pagetable, va0) != 0)
-+      return -1;
      pa0 = walkaddr(pagetable, va0);
      if(pa0 == 0)
-       return -1;
-     n = PGSIZE - (dstva - va0);
-     if(n > len)
-       n = len;
-+    pte = walk(pagetable, va0, 0);
-+    if(pte == 0)
-+      return -1;
-     memmove((void *)(pa0 + (dstva - va0)), src, n);
- 
-     len -= n;
+@@ -432,3 +455,38 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+     return -1;
+   }
+ }
++ 
++// Check if a given virtual address points to a copy-on-write page
++int uvmcheckcowpage(uint64 va) {
++  pte_t *pte;
++  struct proc *p = myproc();
++  
++  return va < p->sz // within size of memory for the process
++    && ((pte = walk(p->pagetable, va, 0))!=0)
++    && (*pte & PTE_V) // page table entry exists
++    && (*pte & PTE_COW); // page is a cow page
++}
++
++// Copy the cow page, then map it as writable
++int uvmcowcopy(uint64 va) {
++  pte_t *pte;
++  struct proc *p = myproc();
++
++  if((pte = walk(p->pagetable, va, 0)) == 0)
++    panic("uvmcowcopy: walk");
++  
++  // copy the cow page
++  // (no copying will take place if reference count is already 1)
++  uint64 pa = PTE2PA(*pte);
++  uint64 new = (uint64)kcopy_n_deref((void*)pa);
++  if(new == 0)
++    return -1;
++  
++  // map as writable, remove the cow flag
++  uint64 flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
++  uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
++  if(mappages(p->pagetable, va, 1, new, flags) == -1) {
++    panic("uvmcowcopy: mappages");
++  }
++  return 0;
++}
 diff --git a/time.txt b/time.txt
 new file mode 100644
 index 0000000..86ee83a

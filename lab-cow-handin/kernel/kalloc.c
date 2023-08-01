@@ -9,8 +9,6 @@
 #include "riscv.h"
 #include "defs.h"
 
-uint page_ref[(PHYSTOP - KERNBASE) / PGSIZE];
-
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -25,10 +23,25 @@ struct {
   struct run *freelist;
 } kmem;
 
+// For indexing the copy-on-write page reference count array
+#define PA2PGREF_ID(p) (((p)-KERNBASE)/PGSIZE)
+#define PGREF_MAX_ENTRIES PA2PGREF_ID(PHYSTOP)
+
+struct spinlock pgreflock;
+int pageref[PGREF_MAX_ENTRIES]; // reference count for each physical page
+// note:  reference counts are incremented on fork, not on mapping. this means that
+//        multiple mappings of the same physical page within a single process are only
+//        counted as one reference.
+//        this shouldn't be a problem, though. as there's no way for a user program to map
+//        a physical page twice within it's address space in xv6.
+
+#define PA2PGREF(p) pageref[PA2PGREF_ID((uint64)(p))]
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&pgreflock, "pgref");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -48,29 +61,27 @@ freerange(void *pa_start, void *pa_end)
 void
 kfree(void *pa)
 {
-  struct run *r;  
+  struct run *r;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  //acquire(&ref_lock);
-  if(page_ref[COW_INDEX(pa)] > 1) {
-    page_ref[COW_INDEX(pa)]--;
-    //release(&ref_lock);
-    return;
+  acquire(&pgreflock);
+  if(--PA2PGREF(pa) <= 0) {
+    // when the reference count of the page goes to zero, free the page
+
+    // Fill with junk to catch dangling refs.
+    // pa will be memset multiple times if race-condition occurred.
+    memset(pa, 1, PGSIZE);
+
+    r = (struct run*)pa;
+
+    acquire(&kmem.lock);
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+    release(&kmem.lock);
   }
-  page_ref[COW_INDEX(pa)] = 0;
-  //release(&ref_lock);
-
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
-
-  r = (struct run*)pa;
-
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  release(&pgreflock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -87,34 +98,44 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r) {
+  if(r){
     memset((char*)r, 5, PGSIZE); // fill with junk
-    page_ref[COW_INDEX(r)] = 1;
+    // reference count for a physical page is always 1 after allocation.
+    // (no need to lock this operation)
+    PA2PGREF(r) = 1;
   }
+  
   return (void*)r;
 }
+// Decrease reference to the page by one if it's more than one, then
+// allocate a new physical page and copy the page into it.
+// (Effectively turing one reference into one copy.)
+// 
+// Do nothing and simply return pa when reference count is already
+// less than or equal to 1.
+void *kcopy_n_deref(void *pa) {
+  acquire(&pgreflock);
 
-int
-cow_alloc(pagetable_t pagetable, uint64 va) {
-  va = PGROUNDDOWN(va);
-  if(va >= MAXVA) return -1;
-  pte_t *pte = walk(pagetable, va, 0);
-  if(pte == 0) return -1;
-  uint64 pa = PTE2PA(*pte);
-  if(pa == 0) return -1;
-  uint64 flags = PTE_FLAGS(*pte);
-  if(flags & PTE_COW) {
-    uint64 mem = (uint64)kalloc();
-    if (mem == 0) return -1;
-    memmove((char*)mem, (char*)pa, PGSIZE);
-    uvmunmap(pagetable, va, 1, 1);
-    flags = (flags | PTE_W) & ~PTE_COW;
-    //*pte = PA2PTE(mem) | flags;
-	if (mappages(pagetable, va, PGSIZE, mem, flags) != 0) {
-      kfree((void*)mem);
-      return -1;
-    }
+  if(PA2PGREF(pa) <= 1) {
+    release(&pgreflock);
+    return pa;
   }
-  return 0;
+
+  uint64 newpa = (uint64)kalloc();
+  if(newpa == 0) {
+    release(&pgreflock);
+    return 0; // out of memory
+  }
+  memmove((void*)newpa, (void*)pa, PGSIZE);
+  PA2PGREF(pa)--;
+
+  release(&pgreflock);
+  return (void*)newpa;
 }
 
+// increase reference count of the page by one
+void krefpage(void *pa) {
+  acquire(&pgreflock);
+  PA2PGREF(pa)++;
+  release(&pgreflock);
+}

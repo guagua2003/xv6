@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -15,47 +17,36 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
-extern uint page_ref[]; // kalloc.c
-
-// Make a direct-map page table for the kernel.
-pagetable_t
-kvmmake(void)
+/*
+ * create a direct-map page table for the kernel.
+ */
+void
+kvminit()
 {
-  pagetable_t kpgtbl;
-
-  kpgtbl = (pagetable_t) kalloc();
-  memset(kpgtbl, 0, PGSIZE);
+  kernel_pagetable = (pagetable_t) kalloc();
+  memset(kernel_pagetable, 0, PGSIZE);
 
   // uart registers
-  kvmmap(kpgtbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
 
   // virtio mmio disk interface
-  kvmmap(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  kvmmap(VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  kvmmap(CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
   // PLIC
-  kvmmap(kpgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  kvmmap(PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 
   // map kernel text executable and read-only.
-  kvmmap(kpgtbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  kvmmap(KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
 
   // map kernel data and the physical RAM we'll make use of.
-  kvmmap(kpgtbl, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  kvmmap((uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
 
   // map the trampoline for trap entry/exit to
   // the highest virtual address in the kernel.
-  kvmmap(kpgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
-
-  // map kernel stacks
-  proc_mapstacks(kpgtbl);
-  
-  return kpgtbl;
-}
-
-// Initialize the one kernel_pagetable
-void
-kvminit(void)
-{
-  kernel_pagetable = kvmmake();
+  kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -126,10 +117,30 @@ walkaddr(pagetable_t pagetable, uint64 va)
 // only used when booting.
 // does not flush TLB or enable paging.
 void
-kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
+kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
-  if(mappages(kpgtbl, va, sz, pa, perm) != 0)
+  if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
+}
+
+// translate a kernel virtual address to
+// a physical address. only needed for
+// addresses on the stack.
+// assumes va is page aligned.
+uint64
+kvmpa(uint64 va)
+{
+  uint64 off = va % PGSIZE;
+  pte_t *pte;
+  uint64 pa;
+  
+  pte = walk(kernel_pagetable, va, 0);
+  if(pte == 0)
+    panic("kvmpa");
+  if((*pte & PTE_V) == 0)
+    panic("kvmpa");
+  pa = PTE2PA(*pte);
+  return pa+off;
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
@@ -142,16 +153,13 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   uint64 a, last;
   pte_t *pte;
 
-  if(size == 0)
-    panic("mappages: size");
-  
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
     if(*pte & PTE_V)
-      panic("mappages: remap");
+      panic("remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -305,7 +313,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  //char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -313,18 +321,25 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    *pte = (*pte & ~PTE_W) | PTE_COW;
+    if(*pte & PTE_W) {
+      // clear out PTE_W for parent, set PTE_COW
+      *pte = (*pte & ~PTE_W) | PTE_COW;
+    }
     flags = PTE_FLAGS(*pte);
-    //if((mem = kalloc()) == 0)
-    //  goto err;
-    //memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, pa, flags) != 0){
-      //kfree(mem);
+    // map physical page of parent directly to child (copy-on-write)
+    // since the write flag has already been cleared for the parent
+    // the child mapping won't have the write flag as well.
+    //
+    // for page that is already read-only for parent, it will be read-
+    // only for child as well.
+    // for read-only page that is also a cow page, the PTE_COW flag will
+    // be copied over to child page, making it a cow page automatically.
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;
     }
-    //acquire(&ref_lock);
-    page_ref[COW_INDEX(pa)]++;
-    //release(&ref_lock);
+    // for any cases above, we created a new reference to the physical
+    // page, so increase reference count by one.
+    krefpage((void*)pa);
   }
   return 0;
 
@@ -353,21 +368,17 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-  pte_t *pte;
 
   while(len > 0){
+    if(uvmcheckcowpage(dstva))
+      uvmcowcopy(dstva);
     va0 = PGROUNDDOWN(dstva);
-    if (cow_alloc(pagetable, va0) != 0)
-      return -1;
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
-    pte = walk(pagetable, va0, 0);
-    if(pte == 0)
-      return -1;
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;
@@ -443,4 +454,39 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+ 
+// Check if a given virtual address points to a copy-on-write page
+int uvmcheckcowpage(uint64 va) {
+  pte_t *pte;
+  struct proc *p = myproc();
+  
+  return va < p->sz // within size of memory for the process
+    && ((pte = walk(p->pagetable, va, 0))!=0)
+    && (*pte & PTE_V) // page table entry exists
+    && (*pte & PTE_COW); // page is a cow page
+}
+
+// Copy the cow page, then map it as writable
+int uvmcowcopy(uint64 va) {
+  pte_t *pte;
+  struct proc *p = myproc();
+
+  if((pte = walk(p->pagetable, va, 0)) == 0)
+    panic("uvmcowcopy: walk");
+  
+  // copy the cow page
+  // (no copying will take place if reference count is already 1)
+  uint64 pa = PTE2PA(*pte);
+  uint64 new = (uint64)kcopy_n_deref((void*)pa);
+  if(new == 0)
+    return -1;
+  
+  // map as writable, remove the cow flag
+  uint64 flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+  uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
+  if(mappages(p->pagetable, va, 1, new, flags) == -1) {
+    panic("uvmcowcopy: mappages");
+  }
+  return 0;
 }
